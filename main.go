@@ -92,7 +92,12 @@ func listOrdersByStatus(c *gin.Context) {
         return
     }
 
-    c.IndentedJSON(http.StatusOK, orders)
+	if orders == nil {
+		orders = []Order{}
+	}
+
+    //c.IndentedJSON(http.StatusOK, orders)
+	c.JSON(http.StatusOK, orders)
 }
 
 
