@@ -44,7 +44,7 @@ func main() {
 	// For admin UI: list orders directly from DB (optionally filtered by status)
 	// Example: GET /order?status=1   (status=Processing)
 	//          GET /order?status=2   (status=Complete / shipped)
-	router.GET("/order", listOrders)
+	//router.GET("/order", listOrders)
 	router.GET("/order", listOrdersByStatus)
 
 	// Get single order
