@@ -37,15 +37,29 @@ func main() {
 	router := gin.Default()
 	router.Use(cors.Default())
 	router.Use(OrderMiddleware(orderService))
+
+	// For makeline/worker: fetch from queue, insert into DB, then return pending orders
 	router.GET("/order/fetch", fetchOrders)
+
+	// For admin UI: list orders directly from DB (optionally filtered by status)
+	// Example: GET /order?status=1   (status=Processing)
+	//          GET /order?status=2   (status=Complete / shipped)
+	router.GET("/order", listOrders)
+
+	// Get single order
 	router.GET("/order/:id", getOrder)
+
+	// Update order (status, items, etc.)
 	router.PUT("/order", updateOrder)
+
+	// Health check
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "ok",
 			"version": os.Getenv("APP_VERSION"),
 		})
 	})
+
 	router.Run(":3001")
 }
 
@@ -57,7 +71,8 @@ func OrderMiddleware(orderService *OrderService) gin.HandlerFunc {
 	}
 }
 
-// Fetches orders from the order queue and stores them in database
+// Fetches orders from the order queue, stores them in database, then returns pending orders
+// This is primarily for the makeline/worker flow.
 func fetchOrders(c *gin.Context) {
 	client, ok := c.MustGet("orderService").(*OrderService)
 	if !ok {
@@ -82,10 +97,56 @@ func fetchOrders(c *gin.Context) {
 		return
 	}
 
-	// Return the orders to be processed
+	// Return the orders to be processed (pending)
 	orders, err = client.repo.GetPendingOrders()
 	if err != nil {
 		log.Printf("Failed to get pending orders from database: %s", err)
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, orders)
+}
+
+// listOrders reads orders directly from the database.
+// If the "status" query parameter is provided, it filters by that numeric Status.
+// Example: GET /order?status=1  (Processing)
+//          GET /order?status=2  (Complete / shipped)
+func listOrders(c *gin.Context) {
+	client, ok := c.MustGet("orderService").(*OrderService)
+	if !ok {
+		log.Printf("Failed to get order service")
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	statusParam := c.Query("status")
+
+	var (
+		orders []Order
+		err    error
+	)
+
+	if statusParam != "" {
+		// parse status as int and cast to Status enum
+		statusInt, parseErr := strconv.Atoi(statusParam)
+		if parseErr != nil {
+			log.Printf("Invalid status query value: %s", statusParam)
+			c.AbortWithStatus(http.StatusBadRequest)
+			return
+		}
+
+		status := Status(statusInt)
+
+		// You will implement GetOrdersByStatus(status Status) on the repo
+		orders, err = client.repo.GetOrdersByStatus(status)
+	} else {
+		// Fallback: reuse existing pending-orders method
+		orders, err = client.repo.GetPendingOrders()
+	}
+
+	if err != nil {
+		log.Printf("Failed to get orders from database: %s", err)
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return
 	}
@@ -122,6 +183,8 @@ func getOrder(c *gin.Context) {
 }
 
 // Updates the status of an order
+// For the admin "Ship" action, the UI will send PUT /order with a numeric status,
+// e.g. status = 2 (Complete = shipped).
 func updateOrder(c *gin.Context) {
 	client, ok := c.MustGet("orderService").(*OrderService)
 	if !ok {
@@ -130,7 +193,7 @@ func updateOrder(c *gin.Context) {
 		return
 	}
 
-	// unmarsal the order from the request body
+	// unmarshal the order from the request body
 	var order Order
 	if err := c.BindJSON(&order); err != nil {
 		log.Printf("Failed to unmarshal order: %s", err)
@@ -151,7 +214,7 @@ func updateOrder(c *gin.Context) {
 		OrderID:    sanitizedOrderId,
 		CustomerID: order.CustomerID,
 		Items:      order.Items,
-		Status:     order.Status,
+		Status:     order.Status, // e.g. Pending(0), Processing(1), Complete(2)
 	}
 
 	err = client.repo.UpdateOrder(sanitizedOrder)
@@ -161,7 +224,8 @@ func updateOrder(c *gin.Context) {
 		return
 	}
 
-	c.SetAccepted("202")
+	// 202 Accepted – update is processed
+	c.Status(http.StatusAccepted)
 }
 
 // Gets an environment variable or exits if it is not set

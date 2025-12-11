@@ -103,6 +103,39 @@ func (r *CosmosDBOrderRepo) GetPendingOrders() ([]Order, error) {
 	return orders, nil
 }
 
+func (r *CosmosDBOrderRepo) GetOrdersByStatus(status Status) ([]Order, error) {
+	var orders []Order
+
+	pk := azcosmos.NewPartitionKeyString(r.partitionKey.Value)
+	opt := &azcosmos.QueryOptions{
+		QueryParameters: []azcosmos.QueryParameter{
+			{Name: "@status", Value: status},
+		},
+	}
+
+	queryPager := r.db.NewQueryItemsPager("SELECT * FROM o WHERE o.status = @status", pk, opt)
+
+	for queryPager.More() {
+		queryResponse, err := queryPager.NextPage(context.Background())
+		if err != nil {
+			log.Printf("failed to get next page (GetOrdersByStatus): %v\n", err)
+			return nil, err
+		}
+
+		for _, item := range queryResponse.Items {
+			var order Order
+			if err := json.Unmarshal(item, &order); err != nil {
+				log.Printf("failed to deserialize order (GetOrdersByStatus): %v\n", err)
+				return nil, err
+			}
+			orders = append(orders, order)
+		}
+	}
+
+	return orders, nil
+}
+
+
 func (r *CosmosDBOrderRepo) GetOrder(id string) (Order, error) {
 	pk := azcosmos.NewPartitionKeyString(r.partitionKey.Value)
 	opt := &azcosmos.QueryOptions{

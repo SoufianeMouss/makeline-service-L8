@@ -26,7 +26,9 @@ type OrderRepo interface {
 	GetOrder(id string) (Order, error)
 	InsertOrders(orders []Order) error
 	UpdateOrder(order Order) error
+	GetOrdersByStatus(status Status) ([]Order, error) // ✅ new
 }
+
 
 type OrderService struct {
 	repo OrderRepo

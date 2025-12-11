@@ -83,6 +83,37 @@ func (r *MongoDBOrderRepo) GetPendingOrders() ([]Order, error) {
 	return orders, nil
 }
 
+func (r *MongoDBOrderRepo) GetOrdersByStatus(status Status) ([]Order, error) {
+	ctx := context.TODO()
+
+	var orders []Order
+	cursor, err := r.db.Find(ctx, bson.M{"status": status})
+	if err != nil {
+		log.Printf("Failed to find records by status: %s", err)
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	// Check if there was an error during iteration
+	if err := cursor.Err(); err != nil {
+		log.Printf("Failed to iterate records by status: %s", err)
+		return nil, err
+	}
+
+	// Iterate over the cursor and decode each document
+	for cursor.Next(ctx) {
+		var order Order
+		if err := cursor.Decode(&order); err != nil {
+			log.Printf("Failed to decode order: %s", err)
+			return nil, err
+		}
+		orders = append(orders, order)
+	}
+
+	return orders, nil
+}
+
+
 func (r *MongoDBOrderRepo) GetOrder(id string) (Order, error) {
 	var ctx = context.TODO()
 
