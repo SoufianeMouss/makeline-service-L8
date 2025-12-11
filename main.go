@@ -45,6 +45,7 @@ func main() {
 	// Example: GET /order?status=1   (status=Processing)
 	//          GET /order?status=2   (status=Complete / shipped)
 	router.GET("/order", listOrders)
+	router.GET("/order", listOrdersByStatus)
 
 	// Get single order
 	router.GET("/order/:id", getOrder)
@@ -62,6 +63,38 @@ func main() {
 
 	router.Run(":3001")
 }
+
+// GET /order?status=0|1|2
+func listOrdersByStatus(c *gin.Context) {
+    client, ok := c.MustGet("orderService").(*OrderService)
+    if !ok {
+        log.Printf("Failed to get order service")
+        c.AbortWithStatus(http.StatusInternalServerError)
+        return
+    }
+
+    statusParam := c.Query("status")
+    if statusParam == "" {
+        c.AbortWithStatus(http.StatusBadRequest)
+        return
+    }
+
+    s, err := strconv.Atoi(statusParam)
+    if err != nil || s < 0 || s > 2 {
+        c.AbortWithStatus(http.StatusBadRequest)
+        return
+    }
+
+    orders, err := client.repo.GetOrdersByStatus(Status(s))
+    if err != nil {
+        log.Printf("Failed to get orders by status: %s", err)
+        c.AbortWithStatus(http.StatusInternalServerError)
+        return
+    }
+
+    c.IndentedJSON(http.StatusOK, orders)
+}
+
 
 // OrderMiddleware is a middleware function that injects the order service into the request context
 func OrderMiddleware(orderService *OrderService) gin.HandlerFunc {
